@@ -1,0 +1,4 @@
+/temp_data/
+/models/*/*data/*
+/models/*/snapshots/*
+/src/__pycache__
