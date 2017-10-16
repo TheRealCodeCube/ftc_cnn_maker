@@ -46,6 +46,8 @@ class ModelTrainer(Thread):
                           stdin=s.PIPE, stdout=s.PIPE, stderr=s.PIPE, cwd=self.model.get_folder())
         while self.running:
             line = trainer.stderr.readline().decode('utf-8')
+            if(line.strip() == ''):
+                return
             print('[CAFFE]', line.replace('\n', ''))
             #Parse log messages to find out what is going on.
             if('Test' in line):
@@ -165,6 +167,8 @@ class CaffeModel:
             lindex = bits.index('LABEL')
             label = int(bits[lindex+1])
             images[label].append(filename)
+        for i in range(10):
+            random.shuffle(images[i])
             
         training = []
         validation = []

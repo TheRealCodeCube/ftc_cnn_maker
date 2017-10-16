@@ -21,6 +21,9 @@ splash_label.grid_forget()
 root.columnconfigure(1, weight=2, uniform='a')
     
 class InformationDialog:
+    '''
+    Used to inform the user of information.
+    '''
     def __init__(self, message, callback=lambda:0):
         self.top = tk.Toplevel(root)
         self.top.geometry('280x120')
@@ -36,6 +39,9 @@ class InformationDialog:
         self.callback()
     
 class TextInputDialog:
+    '''
+    Used to ask the user for a line of text input.
+    '''
     def __init__(self, message, callback=lambda a:0):
         self.top = tk.Toplevel(root)
         self.top.geometry('280x120')
@@ -54,6 +60,9 @@ class TextInputDialog:
         self.callback(self.svar.get())
         
 class ProgressDialog:
+    '''
+    Used to inform the user of the progress of an operation.
+    '''
     def __init__(self, num_layers):
         self.top = tk.Toplevel(root)
         self.layers = []
@@ -74,6 +83,9 @@ class ProgressDialog:
         self.top.destroy()
     
 class ModelDetailFrame:
+    '''
+    All the buttons you can push to change parts of the model.
+    '''
     def __init__(self):
         model_details = tk.Frame(root)
         model_details.grid(row=0, column=1, sticky=tk.NSEW)
@@ -112,17 +124,27 @@ class ModelDetailFrame:
         self.current_model = None
         
     def update_dataset_text(self):
+        '''
+        Updates the status of the dataset shown to the user (how many pics, whether or not they have
+        been written to the DB, etc.
+        '''
         text = str(self.current_model.get_num_pictures_in_raw_data())
         text += ' picture(s) in dataset. '
         text += '(DB is ' + ['not ', ''][self.current_model.is_db_up_to_date()] + 'up to date.)'
         self.raw_data_label.config(text=text)
         
     def set_current_model(self, model):
+        '''
+        Sets which model is currently being edited by this panel.
+        '''
         self.current_model = model
         self.model_name.config(text=model.get_name())
         self.update_dataset_text()
         
     def rename_pressed(self):
+        '''
+        Renames the model currently being edited.
+        '''
         if(self.current_model is not None):
             TextInputDialog('New model name:', self.rename)
             
@@ -133,14 +155,26 @@ class ModelDetailFrame:
     
     default_editor = 'gedit'
     def edit_model_pressed(self):
+        '''
+        Opens a text editor (gedit by default) to edit the model's model.prototext.
+        TODO: make this also update production.prototext when it is finished.
+        '''
         if(self.current_model is not None):
             proc = s.Popen([ModelDetailFrame.default_editor, os.path.join(self.current_model.get_folder(), 'model.prototext')])
     
     def edit_solver_pressed(self):
+        '''
+        Opens a text editor (gedit by default) to edit the model's solver.prototext.
+        '''
         if(self.current_model is not None):
             proc = s.Popen([ModelDetailFrame.default_editor, os.path.join(self.current_model.get_folder(), 'solver.prototext')])
         
     def upload_to_phone_pressed(self):
+        '''
+        Uploads the model's production.prototext and most recent snapshot.caffemodel to a phone 
+        connected via ADB. The files will be in /sdcard/caffe_files/model_name.prototext and 
+        /sdcard/caffe_files/model_name.caffemodel
+        '''
         if((self.current_model is not None)):
             snapshot = self.current_model.get_last_snapshot()
             if(snapshot is None):
@@ -157,10 +191,23 @@ class ModelDetailFrame:
                     '/sdcard/caffe_files/' + self.current_model.get_name() + '.caffemodel'])
         
     def overwrite_raw_data_pressed(self):
+        '''
+        Overwrites the images used to train the network from a user-selected folder.
+        '''
         dialog = InformationDialog('Pick the folder containing the images that should overwrite the current data set.', 
                                    lambda: self.import_raw_data(True))
+    
+    def append_raw_data_pressed(self):
+        '''
+        Adds images to be used for training the network from a user-selected folder.
+        '''
+        dialog = InformationDialog('Pick the folder containing the images that should be added to the current data set.', 
+                                   lambda: self.import_raw_data(False))
         
     def import_raw_data(self, overwrite):
+        '''
+        Helper method for overwrite_raw_data_pressed and append_raw_data_pressed.
+        '''
         path = filedialog.askdirectory()
         progress = ProgressDialog(1)
         if((path != '') and (self.current_model is not None)):
@@ -168,11 +215,10 @@ class ModelDetailFrame:
         self.update_dataset_text()
         progress.close()
     
-    def append_raw_data_pressed(self):
-        dialog = InformationDialog('Pick the folder containing the images that should be added to the current data set.', 
-                                   lambda: self.import_raw_data(False))
-    
     def write_raw_data_to_db_pressed(self):
+        '''
+        Writes the images used for training the network into training and validation databases.
+        '''
         progress = ProgressDialog(2)
         if(self.current_model is not None):
             self.current_model.write_raw_data_to_dbs(callback=progress.show_progress)
@@ -180,6 +226,9 @@ class ModelDetailFrame:
         progress.close()
     
     def start_training_pressed(self):
+        '''
+        Starts training the selected model.
+        '''
         start_training(self.current_model, True)
        
 mdf = ModelDetailFrame()
@@ -200,6 +249,9 @@ def refresh_model_list():
         model_list.insert(tk.END, model.get_name())
 
 class TrainingFooter:
+    '''
+    It shows the progress of whatever model is currently being trained.
+    '''
     def __init__(self):
         footer = tk.Frame(root)
         footer.grid(row=1, column=1, sticky=tk.EW)
@@ -236,6 +288,9 @@ def start_training(model, resume):
             current_trainer.start() 
             
 def close():
+    '''
+    Called when the window should be closed.
+    '''
     global current_trainer
     if((current_trainer is not None) and (current_trainer.running)):
         current_trainer.stop_soon()
