@@ -51,7 +51,7 @@ class ConfirmationDialog:
         self.top.rowconfigure(0, weight=1)
         tk.Label(self.top, text=message, wraplength=280).grid(row=0, column=0, columnspan=2)
         tk.Button(self.top, text=positive, command=self.pressed).grid(row=1, column=0)
-        tk.Button(self.top, text=negative).grid(row=1, column=1)
+        tk.Button(self.top, text=negative, command=lambda: self.top.destroy()).grid(row=1, column=1)
         self.callback = callback
         
     def pressed(self):
@@ -129,8 +129,7 @@ class ModelDetailFrame:
     All the buttons you can push to change parts of the model.
     '''
     def __init__(self):
-        model_details = tk.Frame(root)
-        model_details.grid(row=0, column=1, sticky=tk.NSEW)
+        model_details = self.model_details = tk.Frame(root)
         model_details.columnconfigure(0, weight=1)
         
         self.model_name = tk.Label(model_details, text="NO MODEL SELECTED (SELECT ONE BEFORE USING ANY OF THESE BUTTONS)")
@@ -142,17 +141,20 @@ class ModelDetailFrame:
         tk.Button(model_stuff, text="Delete", command=self.delete_pressed).grid(row=0, column=1)
         tk.Button(model_stuff, text="Edit Model", command=self.edit_model_pressed).grid(row=0, column=2)
         tk.Button(model_stuff, text="Edit Solver", command=self.edit_solver_pressed).grid(row=0, column=3)
-        tk.Button(model_stuff, text="Upload via ADB", command=self.upload_to_phone_pressed).grid(row=0, column=4)
+        tk.Button(model_stuff, text="Upload To Android Device", command=self.upload_to_phone_pressed).grid(row=0, column=4)
         
         self.raw_data_label = tk.Label(model_details, text="0 pictures in dataset. (DB up to date.)")
         self.raw_data_label.grid(row=2, column=0, sticky=tk.W)
         raw_data_stuff = tk.Frame(model_details)
         raw_data_stuff.grid(row=3, column=0, sticky=tk.EW)
         
+        tk.Button(raw_data_stuff, text="Browse", command=self.browse_data_pressed).grid(row=0, column=0)
         overwrite_raw_data_button = tk.Button(raw_data_stuff, text="Overwrite", command=self.overwrite_raw_data_pressed)
         overwrite_raw_data_button.grid(row=0, column=1)
         append_raw_data_button = tk.Button(raw_data_stuff, text="Append", command=self.append_raw_data_pressed)
         append_raw_data_button.grid(row=0, column=2)
+        append_from_adb = tk.Button(raw_data_stuff, text="Append From Android Device", command=self.append_via_adb_pressed)
+        append_from_adb.grid(row=0, column=3)
         #Updating the database was previously done manually. To avoid user error, it is now done whenever the user uses
         #the Overwrite or Append buttons.
         #write_raw_data_to_db_button = tk.Button(raw_data_stuff, text="Write to DB", command=self.write_raw_data_to_db_pressed)
@@ -163,9 +165,9 @@ class ModelDetailFrame:
         training_stuff = tk.Frame(model_details)
         training_stuff.grid(row=5, column=0, sticky=tk.EW)
         
-        self.resume_training_button = tk.Button(training_stuff, text="Resume Training", command=self.start_training_pressed)
+        self.resume_training_button = tk.Button(training_stuff, text="Resume Training", command=lambda: self.start_training(True))
         self.resume_training_button.grid(row=0, column=0)
-        self.start_training_button = tk.Button(training_stuff, text="Start Training From Scratch", command=self.start_training_pressed)
+        self.start_training_button = tk.Button(training_stuff, text="Start Training From Scratch", command=lambda: self.start_training(False))
         self.start_training_button.grid(row=0, column=1)
         
         self.current_model = None
@@ -180,13 +182,33 @@ class ModelDetailFrame:
         text += '(DB is ' + ['not ', ''][self.current_model.is_db_up_to_date()] + 'up to date.)'
         self.raw_data_label.config(text=text)
         
+    def update_training_status(self):
+        '''
+        Grays out the Resume Training button if there are no snapshots, and grays out both buttons
+        if this network is already being trained.
+        '''
+        if((current_trainer != None) and (current_trainer.model.get_folder() == self.current_model.get_folder())):
+            self.resume_training_button.config(state=tk.DISABLED)
+            self.start_training_button.config(state=tk.DISABLED)
+        else:
+            if(self.current_model.get_last_snapshot() is None):
+                self.resume_training_button.config(state=tk.DISABLED)
+            else:
+                self.resume_training_button.config(state=tk.NORMAL)
+            self.start_training_button.config(state=tk.NORMAL)
+        
     def set_current_model(self, model):
         '''
         Sets which model is currently being edited by this panel.
         '''
-        self.current_model = model
-        self.model_name.config(text=model.get_name())
-        self.update_dataset_text()
+        if(model is None):
+            self.model_details.grid_forget()
+        else:
+            self.model_details.grid(row=0, column=1, sticky=tk.NSEW)
+            self.current_model = model
+            self.model_name.config(text=model.get_name())
+            self.update_dataset_text()
+            self.update_training_status()
         
     def delete_pressed(self):
         if(self.current_model is None):
@@ -195,16 +217,17 @@ class ModelDetailFrame:
             s.call(['rm', '-r', self.current_model.get_folder()])
             models.remove(self.current_model)
             refresh_model_list()
+            self.set_current_model(None)
         ConfirmationDialog('Are you sure? This will delete EVERYTHING about the network, including its structure, input, and training!', really_delete)
         
     def rename_pressed(self):
-        '''
-        Renames the model currently being edited.
-        '''
         if(self.current_model is not None):
             TextInputDialog('New model name:', self.rename)
             
     def rename(self, new_name):
+        '''
+        Renames the model currently being edited.
+        '''
         self.current_model.rename(new_name)
         self.model_name.config(text=new_name)
         refresh_model_list()
@@ -245,6 +268,14 @@ class ModelDetailFrame:
                     '/sdcard/caffe_files/' + self.current_model.get_name() + '.prototext'])
             s.call(['adb', 'push', snapshot.replace('solverstate', 'caffemodel'), 
                     '/sdcard/caffe_files/' + self.current_model.get_name() + '.caffemodel'])
+            
+    default_browser = 'nautilus'
+    def browse_data_pressed(self):
+        '''
+        Opens the input data in a file browser (nautilus by default).
+        '''
+        s.Popen([ModelDetailFrame.default_browser, os.path.join(self.current_model.get_folder(), 'raw_data')])
+        InformationDialog('Press Okay when you are done making changes to the dataset.', callback=lambda: self.write_raw_data_to_db())
         
     def overwrite_raw_data_pressed(self):
         '''
@@ -273,6 +304,22 @@ class ModelDetailFrame:
         
         #Update databases. Previously, this was done with a seperate button, but this way allows for less user error.
         self.write_raw_data_to_db()
+        
+    def append_via_adb_pressed(self):
+        '''
+        Appends images captured on an android device connected to the computer.
+        '''
+        if(self.current_model is None):
+            return
+        progress = ProgressDialog(1)
+        self.current_model.import_via_adb(callback=progress.show_progress)
+        progress.close()
+        self.write_raw_data_to_db()
+        def delete_via_adb():
+            s.call(['adb', 'shell', 'rm', '/sdcard/caffe_files/training_images/*'])
+            InformationDialog('The files have been deleted!')
+        ConfirmationDialog('Would you like to delete the images off of the device to free up space?', 
+                           positive='Yes', negative='No', callback=delete_via_adb)
     
     def write_raw_data_to_db(self):
         '''
@@ -284,11 +331,12 @@ class ModelDetailFrame:
         self.update_dataset_text()
         progress.close()
     
-    def start_training_pressed(self):
+    def start_training(self, resume):
         '''
         Starts training the selected model.
         '''
-        start_training(self.current_model, True)
+        start_training(self.current_model, resume)
+        self.update_training_status()
        
 mdf = ModelDetailFrame()
 
@@ -341,10 +389,12 @@ current_trainer = None
 def start_training(model, resume):
     global current_trainer
     if(model is not None):
-        if(current_trainer is None):
-            current_trainer = model.create_trainer_thread(resume=resume)
-            current_trainer.set_callback(tf.update)
-            current_trainer.start() 
+        if(current_trainer is not None):
+            current_trainer.stop_soon()
+            current_trainer.join()
+        current_trainer = model.create_trainer_thread(resume=resume)
+        current_trainer.set_callback(tf.update)
+        current_trainer.start() 
             
 def close():
     '''

@@ -208,6 +208,23 @@ class CaffeModel:
                 callback([(i/num_images, 'Copying images...')])
         self.db_up_to_date = False
         
+    def import_via_adb(self, callback=lambda a:0):
+        '''
+        Appends the contents of the currently connected phone's /sdcard/caffe_files/training_images folder
+        to the input database.
+        '''
+        source = '/sdcard/caffe_files/training_images'
+        raw_data_folder = os.path.join(self.get_folder(), 'raw_data') + '/'
+        files = []
+        for line in s.check_output(['adb', 'shell', 'ls', source]).decode('ascii').split('\n'):
+            files += [i.strip() for i in line.split(' ') if i.strip() != '']
+        total = len(files)
+        done = 0
+        for file in files:
+            s.call(['adb', 'pull', source + '/' + file, raw_data_folder])
+            done += 1
+            callback([('Copying files...', done/total)])
+        
     def get_num_pictures_in_raw_data(self):
         '''
         Returns the number of pictures stored in this model's raw_data folder.
@@ -218,6 +235,8 @@ class CaffeModel:
         '''
         Returns a ModelTrainer thread that, when started, will train this network.
         '''
+        if(not resume):
+            s.call(['rm'] + glob(os.path.join(self.get_folder(), 'snapshots', '*')))
         return ModelTrainer(self, resume=resume)
     
     def rename(self, new_name):
