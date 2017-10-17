@@ -14,6 +14,7 @@ import subprocess as s
 from tkinter import filedialog as filedialog
 from tkinter import ttk
 from model import CaffeModel
+import util
 
 models = CaffeModel.load_all_from_models_folder()
 
@@ -38,6 +39,25 @@ class InformationDialog:
         self.top.destroy()
         self.callback()
     
+class ConfirmationDialog:
+    '''
+    Used to ask the user if they really meant to type 'sudo rm -rf /'
+    '''
+    def __init__(self, message, callback=lambda:0, positive='Okay', negative='Cancel'):
+        self.top = tk.Toplevel(root)
+        self.top.geometry('280x120')
+        self.top.columnconfigure(0, weight=1)
+        self.top.columnconfigure(1, weight=1)
+        self.top.rowconfigure(0, weight=1)
+        tk.Label(self.top, text=message, wraplength=280).grid(row=0, column=0, columnspan=2)
+        tk.Button(self.top, text=positive, command=self.pressed).grid(row=1, column=0)
+        tk.Button(self.top, text=negative).grid(row=1, column=1)
+        self.callback = callback
+        
+    def pressed(self):
+        self.top.destroy()
+        self.callback()
+    
 class TextInputDialog:
     '''
     Used to ask the user for a line of text input.
@@ -53,6 +73,28 @@ class TextInputDialog:
         self.entry.grid(row=1, column=0)
         self.button = tk.Button(self.top, text='Submit', command=self.pressed)
         self.button.grid(row=2, column=0)
+        self.callback = callback
+        
+    def pressed(self):
+        self.top.destroy()
+        self.callback(self.svar.get())
+        
+class SelectionDialog:
+    '''
+    Used to ask the user to select one of several options.
+    '''
+    def __init__(self, message, choices, callback=lambda a:0):
+        self.top = tk.Toplevel(root)
+        self.top.geometry('280x120')
+        self.top.columnconfigure(0, weight=1)
+        self.top.rowconfigure(0, weight=1)
+        self.top.rowconfigure(1, weight=1)
+        tk.Label(self.top, text=message, wraplength=280).grid(row=0, column=0)
+        self.svar = tk.StringVar()
+        self.svar.set(choices[0])
+        self.spinner = tk.OptionMenu(self.top, self.svar, *choices)
+        self.spinner.grid(row=1, column=0)
+        tk.Button(self.top, text='Submit', command=self.pressed).grid(row=2, column=0)
         self.callback = callback
         
     def pressed(self):
@@ -97,9 +139,10 @@ class ModelDetailFrame:
         model_stuff.grid(row=1, column=0, sticky=tk.EW)
         
         tk.Button(model_stuff, text="Rename", command=self.rename_pressed).grid(row=0, column=0)
-        tk.Button(model_stuff, text="Edit Model", command=self.edit_model_pressed).grid(row=0, column=1)
-        tk.Button(model_stuff, text="Edit Solver", command=self.edit_solver_pressed).grid(row=0, column=2)
-        tk.Button(model_stuff, text="Upload via ADB", command=self.upload_to_phone_pressed).grid(row=0, column=3)
+        tk.Button(model_stuff, text="Delete", command=self.delete_pressed).grid(row=0, column=1)
+        tk.Button(model_stuff, text="Edit Model", command=self.edit_model_pressed).grid(row=0, column=2)
+        tk.Button(model_stuff, text="Edit Solver", command=self.edit_solver_pressed).grid(row=0, column=3)
+        tk.Button(model_stuff, text="Upload via ADB", command=self.upload_to_phone_pressed).grid(row=0, column=4)
         
         self.raw_data_label = tk.Label(model_details, text="0 pictures in dataset. (DB up to date.)")
         self.raw_data_label.grid(row=2, column=0, sticky=tk.W)
@@ -110,15 +153,19 @@ class ModelDetailFrame:
         overwrite_raw_data_button.grid(row=0, column=1)
         append_raw_data_button = tk.Button(raw_data_stuff, text="Append", command=self.append_raw_data_pressed)
         append_raw_data_button.grid(row=0, column=2)
-        write_raw_data_to_db_button = tk.Button(raw_data_stuff, text="Write to DB", command=self.write_raw_data_to_db_pressed)
-        write_raw_data_to_db_button.grid(row=0, column=3)
+        #Updating the database was previously done manually. To avoid user error, it is now done whenever the user uses
+        #the Overwrite or Append buttons.
+        #write_raw_data_to_db_button = tk.Button(raw_data_stuff, text="Write to DB", command=self.write_raw_data_to_db_pressed)
+        #write_raw_data_to_db_button.grid(row=0, column=3)
         
         self.training_label = tk.Label(model_details, text="Training")
         self.training_label.grid(row=4, column=0, sticky=tk.W)
         training_stuff = tk.Frame(model_details)
         training_stuff.grid(row=5, column=0, sticky=tk.EW)
         
-        self.start_training_button = tk.Button(training_stuff, text="Start Training", command=self.start_training_pressed)
+        self.resume_training_button = tk.Button(training_stuff, text="Resume Training", command=self.start_training_pressed)
+        self.resume_training_button.grid(row=0, column=0)
+        self.start_training_button = tk.Button(training_stuff, text="Start Training From Scratch", command=self.start_training_pressed)
         self.start_training_button.grid(row=0, column=1)
         
         self.current_model = None
@@ -140,6 +187,15 @@ class ModelDetailFrame:
         self.current_model = model
         self.model_name.config(text=model.get_name())
         self.update_dataset_text()
+        
+    def delete_pressed(self):
+        if(self.current_model is None):
+            return
+        def really_delete():
+            s.call(['rm', '-r', self.current_model.get_folder()])
+            models.remove(self.current_model)
+            refresh_model_list()
+        ConfirmationDialog('Are you sure? This will delete EVERYTHING about the network, including its structure, input, and training!', really_delete)
         
     def rename_pressed(self):
         '''
@@ -214,8 +270,11 @@ class ModelDetailFrame:
             self.current_model.import_raw_data(path, overwrite=overwrite, callback=progress.show_progress)
         self.update_dataset_text()
         progress.close()
+        
+        #Update databases. Previously, this was done with a seperate button, but this way allows for less user error.
+        self.write_raw_data_to_db()
     
-    def write_raw_data_to_db_pressed(self):
+    def write_raw_data_to_db(self):
         '''
         Writes the images used for training the network into training and validation databases.
         '''
@@ -296,7 +355,23 @@ def close():
         current_trainer.stop_soon()
         current_trainer.join()
     root.destroy()
+    
+def create_from_template():
+    def do_copy(template_name, new_name):
+        source = os.path.join(util.get_root_folder(), 'templates', template_name)
+        dest = os.path.join(util.get_model_folder(new_name))
+        s.call(['cp', '-r', source, dest])
+        models.append(CaffeModel.load_from_models_folder(new_name))
+        refresh_model_list()
+    
+    def template_name_callback(selected):
+        TextInputDialog('Enter a name for the new model.', lambda result: do_copy(selected, result))
         
+    templates = os.listdir(os.path.join(util.get_root_folder(), 'templates'))
+    SelectionDialog('Select a template to base the new model off of.', templates, template_name_callback)
+           
+tk.Button(root, text='+ New Model +', command=create_from_template).grid(row=1, column=0)#, anchor=tk.W)
+            
 root.protocol('WM_DELETE_WINDOW', close)
 
 tk.mainloop()

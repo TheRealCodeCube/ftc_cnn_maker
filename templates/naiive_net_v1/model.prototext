@@ -1,18 +1,42 @@
-name: "TestModel"
+name: "Naiive Net v1"
+
+#Make sure to take data for the TRAIN phase from the
+#lm database called 'training_data'. Also make sure
+#to take data for the TEST phase from the lm database
+#called 'validation_data'. These are both automatically
+#created by model_manager.py for use during training.
 layer {
 	name: "data"
-	type: "Input"
+	type: "Data"
 	top: "data"
-	input_param {
-		shape: {
-			dim: 1
-			dim: 3
-			dim: 256
-			dim: 256
-		}
+	top: "label"
+	include {
+		phase: TRAIN
+	}
+	data_param {
+		source: "training_data"
+		batch_size: 60
+		backend: LMDB
 	}
 }
-#256x256x3
+layer {
+	name: "data"
+	type: "Data"
+	top: "data"
+	top: "label"
+	include {
+		phase: TEST
+	}
+	data_param {
+		source: "validation_data"
+		batch_size: 40
+		backend: LMDB
+	}
+}
+
+#This is where the actual net starts.
+#256x256x3 (I am using these comments to keep track of
+#how big the image is as it progresses through the net.)
 layer {
 	name: "conv1"
 	type: "Convolution"
@@ -197,10 +221,25 @@ layer {
 	}
 }
 #10
+
+#Make sure to output 'accuracy' in the TEST phase and
+#'loss' in both phases. This way, model_manager.py can
+#keep track of the net's progress.
+layer {
+	name: "accuracy"
+	type: "Accuracy"
+	bottom: "ip2"
+	bottom: "label"
+	top: "accuracy"
+	include {
+		phase: TEST
+	}
+}
 layer {
 	name: "loss"
-	type: "Softmax"
+	type: "SoftmaxWithLoss"
 	bottom: "ip2"
+	bottom: "label"
 	top: "loss"
 }
 
